@@ -1,16 +1,9 @@
-name: Publicar Mosaic Roll 3D
+name: Deploy Mosaic Roll 3D to GitHub Pages
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - '*.html'
-      - '*.css'
-      - '*.js'
-      - '*.jpg'
-      - '*.zip'
-      - 'vendor/**'
 
 concurrency:
   group: pages
@@ -18,7 +11,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-slim
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       pages: write
@@ -32,8 +25,7 @@ jobs:
       - name: Preparar archivos del juego
         run: |
           mkdir -p _site
-          cp index.html estilo.css juego.js mesa.js reglas.js catalogo.js arte.js mercado.js taller.js unicos.js coleccion.js portada.jpg mesa.jpg azulejo.jpg Mosaic-Roll-3D.zip _site/
-          cp -R vendor _site/
+          cp -r .nojekyll index.html estilo.css juego.js mesa.js reglas.js catalogo.js arte.js mercado.js taller.js unicos.js coleccion.js tooltip.js portada.jpg mesa.jpg azulejo.jpg partida.webp Mosaic-Roll-3D.zip vendor _site/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

@@ -10,9 +10,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT,WONK@0,9..144,500..800,0..100,0..1;1,9..144,500..700,0..100,0..1&family=Alegreya+Sans:ital,wght@0,500;0,700;0,800;1,500&display=swap">
-  <link rel="stylesheet" href="estilo.css?v=ceramica-1">
+  <link rel="stylesheet" href="estilo.css?v=mediterranean-revamp-6">
   <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script>
-  <script type="module" src="juego.js?v=ceramica-1"></script>
+  <script type="module" src="juego.js?v=ceramica-2"></script>
+  <script type="module" src="tooltip.js?v=ceramica-4"></script>
 </head>
 <body>
   <main class="start" id="start">
@@ -66,6 +67,8 @@
       </div>
     </div>
 
+    <input type="checkbox" id="patterns-toggle" class="patterns-toggle" hidden aria-hidden="true">
+    <label for="patterns-toggle" class="patterns-backdrop" aria-hidden="true"></label>
     <div class="layout" id="play-layout">
       <section class="play-area" aria-label="Mesa 3D">
         <div class="world" id="world">
@@ -89,12 +92,10 @@
         <div class="table-controls">
           <p class="hint" id="hint" aria-live="polite"></p>
           <button class="button small" type="button" id="recall" hidden><i class="ico i-undo" aria-hidden="true"></i>Retirar</button>
-          <button class="button icon-button small quiet" type="button" id="top" aria-label="Vista cenital" title="Vista cenital (V)"><i class="ico i-grid" aria-hidden="true"></i></button>
-          <button class="button icon-button small quiet" type="button" id="reset-camera" aria-label="Centrar cámara" title="Centrar cámara (R)"><i class="ico i-target" aria-hidden="true"></i></button>
+          <button class="button icon-button small quiet" type="button" id="top" aria-label="Vista cenital" title="Vista cenital (V)" hidden aria-hidden="true"></button>
+          <button class="button icon-button small quiet" type="button" id="reset-camera" aria-label="Centrar cámara" title="Centrar cámara (R)" hidden aria-hidden="true"></button>
           <button class="button icon-button small quiet" type="button" id="collection-button" aria-label="Bolsa y azulejos" title="Bolsa y azulejos"><i class="ico i-bag" aria-hidden="true"></i></button>
-        </div>
-        <div class="mobile-actions">
-          <button class="button primary big" type="button" id="mobile-confirm" disabled>Puntuar <strong id="mobile-points">+0</strong></button>
+          <label for="patterns-toggle" class="button icon-button small quiet patterns-toggle-btn" aria-label="Ver combinaciones" title="Combinaciones"><i class="ico i-book" aria-hidden="true"></i></label>
         </div>
       </section>
 
@@ -111,11 +112,18 @@
           <div class="active-powers" id="active-powers" role="group" aria-labelledby="equipped-label"></div>
         </section>
         <section class="panel patterns">
-          <h2 class="panel-title">Combinaciones</h2>
+          <div class="patterns-header">
+            <h2 class="panel-title">Combinaciones</h2>
+            <label for="patterns-toggle" class="patterns-close-btn" aria-label="Cerrar"><i class="ico i-close" aria-hidden="true"></i></label>
+          </div>
           <ul id="patterns"></ul>
         </section>
-        <p class="key-tip"><kbd>Clic der.</kbd> girar · <kbd>Rueda</kbd> zoom · <kbd>1–4</kbd> elegir · <kbd>V</kbd> cenital · <kbd>R</kbd> centrar</p>
+        <p class="key-tip"><kbd>Clic der.</kbd> girar · <kbd>Rueda</kbd> zoom · <kbd>1–4</kbd> elegir · <kbd>Espacio</kbd> puntuar</p>
       </aside>
+
+      <div class="mobile-actions">
+        <button class="button primary big" type="button" id="mobile-confirm" disabled>Puntuar <strong id="mobile-points">+0</strong></button>
+      </div>
     </div>
     <section class="workshop-view" id="workshop" aria-labelledby="workshop-title" hidden></section>
   </main>

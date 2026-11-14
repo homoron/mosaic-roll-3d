@@ -1,6 +1,6 @@
 import { Table, HAND, POWER, ROLL_TIME } from './mesa.js?v=ceramica-1';
 import { DiceArt, tileArt } from './arte.js?v=ceramica-1';
-import { MarketUI } from './mercado.js?v=ceramica-1';
+import { MarketUI } from './mercado.js?v=ceramica-2';
 import { powers, rarities, diceName, dieCount, hasFace } from './catalogo.js?v=ceramica-1';
 import { stageAt, campaignLength, orderAt, comboPoints, tileLimit, newRun, restoreRun, isFresh, canPlace, canMove, place, move, recall, chip, preview, commit, continueEndless, advance } from './reglas.js?v=ceramica-1';
 import { uniqueDice } from './unicos.js?v=ceramica-1';

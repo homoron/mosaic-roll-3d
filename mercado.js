@@ -11,6 +11,7 @@ const emptySlot = '<span class="slot-empty" aria-hidden="true"></span>';
 
 export class MarketUI {
   constructor(art, element, callbacks, tileMap) {
+    window.marketUI = this;
     this.art = art;
     this.element = element;
     this.callbacks = callbacks;
@@ -72,6 +73,7 @@ export class MarketUI {
 
   open(run, scroll = 0) {
     this.run = run;
+    window.run = run;
     this.mode = 'shop';
     this.armed = -1;
     const market = run.market;
@@ -114,8 +116,11 @@ export class MarketUI {
       const effect = upgrades[key];
       const usable = !this.run.market.forged && this.run.gold >= effect.price;
       const action = usable ? 'Elegir receta' : this.run.market.forged ? 'Horno usado' : 'Falta oro';
-      area.innerHTML = `<div><strong>${effect.name}</strong><p>${effect.text}</p></div>
-        <button class="button primary" type="button" data-market="effect" data-key="${key}"${usable ? '' : ' disabled'}>${action} · ${coins(effect.price)}</button>`;
+      if (area) {
+        area.innerHTML = `<div><strong>${effect.name}</strong><p>${effect.text}</p></div>
+          <button class="button primary" type="button" data-market="effect" data-key="${key}"${usable ? '' : ' disabled'}>${action} · ${coins(effect.price)}</button>`;
+      }
+      if (window.floatingTooltips) window.floatingTooltips.show(button);
       return;
     }
     const tile = powers[key], rarity = rarities[tile.rarity];
@@ -123,21 +128,31 @@ export class MarketUI {
     const buyable = canBuy(this.run, 'tile', key);
     const price = sell ? `Vender · +${coins(Math.floor(tile.price / 2))}` : this.run.powers.includes(key) ? 'Equipado'
       : this.run.powers.length >= tileLimit ? 'Repisa llena' : `Comprar · ${coins(tile.price)}`;
-    area.innerHTML = `<div class="tile-inspection"><img src="${tileArt(key).url}" alt=""><div><strong style="color:${rarity.ink}">${tile.name}</strong><p>${tile.text}</p></div></div>
-      <button class="button ${sell ? 'quiet' : 'primary'}" type="button" data-market="${sell ? 'sell' : 'tile'}" data-key="${key}"${sell || buyable ? '' : ' disabled'}>${price}</button>`;
+    if (area) {
+      area.innerHTML = `<div class="tile-inspection"><img src="${tileArt(key).url}" alt=""><div><strong style="color:${rarity.ink}">${tile.name}</strong><p>${tile.text}</p></div></div>
+        <button class="button ${sell ? 'quiet' : 'primary'}" type="button" data-market="${sell ? 'sell' : 'tile'}" data-key="${key}"${sell || buyable ? '' : ' disabled'}>${price}</button>`;
+    }
+    if (window.floatingTooltips) window.floatingTooltips.show(button);
   }
 
   inspect(index) {
     const spec = this.run.market.dice[index];
     const area = this.element.querySelector('#die-inspect');
-    if (!area || !spec || this.run.market.purchased.includes(index)) return;
+    if (!spec || this.run.market.purchased.includes(index)) return;
     const rarity = rarities[spec.rarity];
     const unique = uniqueDice[spec.unique];
     if (this.scene) this.scene.selected = index;
-    this.element.querySelectorAll('[data-market="inspect"]').forEach(button => button.setAttribute('aria-pressed', Number(button.dataset.key) === index));
+    const exhibits = this.element.querySelectorAll('[data-market="inspect"]');
+    exhibits.forEach(button => button.setAttribute('aria-pressed', Number(button.dataset.key) === index));
     const effects = dieTraits(spec);
-    area.innerHTML = `<div><strong style="color:${rarity.ink}">${rarity.name} · ${diceName(spec)}</strong>${dieFaces(spec)}
-      ${unique ? `<p>${unique.text}</p><small>Comodín de color · Inmodificable</small>` : effects ? `<small>${effects}</small>` : ''}</div><button class="button primary" data-market="die" data-key="${index}"${canBuy(this.run, 'die', index) ? '' : ' disabled'}>Comprar · ${coins(rarity.price)}</button>`;
+    if (area) {
+      area.innerHTML = `<div><strong style="color:${rarity.ink}">${rarity.name} · ${diceName(spec)}</strong>${dieFaces(spec)}
+        ${unique ? `<p>${unique.text}</p><small>Comodín de color · Inmodificable</small>` : effects ? `<small>${effects}</small>` : ''}</div><button class="button primary" data-market="die" data-key="${index}"${canBuy(this.run, 'die', index) ? '' : ' disabled'}>Comprar · ${coins(rarity.price)}</button>`;
+    }
+    const activeExhibit = Array.from(exhibits).find(button => Number(button.dataset.key) === index);
+    if (activeExhibit && window.floatingTooltips) {
+      window.floatingTooltips.show(activeExhibit);
+    }
   }
 
   oven() {
@@ -254,6 +269,7 @@ export class MarketUI {
   }
 
   breakTile(key) {
+    window.floatingTooltips?.hide();
     if (!sellTile(this.run, key)) return;
     this.callbacks.changed();
     this.callbacks.note('chip');
@@ -269,11 +285,15 @@ export class MarketUI {
   }
 
   purchase(kind, key) {
+    window.floatingTooltips?.hide();
     if (!buy(this.run, kind, key)) return;
     this.callbacks.note('place');
     this.callbacks.changed();
     this.open(this.run, window.scrollY);
-    if (kind === 'die') this.element.querySelector('#die-inspect').innerHTML = `<p>${diceName(this.run.market.dice[key])} añadido a tu bolsa.</p>`;
+    if (kind === 'die') {
+      const area = this.element.querySelector('#die-inspect');
+      if (area) area.innerHTML = `<p>${diceName(this.run.market.dice[key])} añadido a tu bolsa.</p>`;
+    }
     else this.tileFeedback(`${powers[key].name} equipado.`);
   }
 
