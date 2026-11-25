@@ -1,7 +1,7 @@
-import { t } from './idioma.js?v=esmaltes-1';
+import { t } from './idioma.js?v=esmaltes-30';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from './vendor/RoundedBoxGeometry.js';
-import { rarities } from './catalogo.js?v=esmaltes-1';
+import { rarities } from './catalogo.js?v=esmaltes-30';
 
 // Dice in the workshop are a little smaller than on the table so the whole scene fits on phones.
 const DIE_SCALE = .8;
@@ -230,6 +230,17 @@ export class Workshop {
     return item;
   }
 
+  plateModel(spec, id, x, y, z) {
+    const mesh = this.art.createPlateMesh(spec.combo, spec.nextLevel ?? spec.level, 0.95);
+    mesh.position.set(x, y, z);
+    mesh.userData.id = id;
+    mesh.userData.isPlate = true;
+    this.scene.add(mesh);
+    const item = { mesh, home: mesh.position.clone(), target: mesh.position.clone(), lift: 0, isPlate: true };
+    this.models.set(id, item);
+    return item;
+  }
+
   setView(name) {
     this.view = VIEWS[name];
     this.camera.position.copy(this.view.eye);
@@ -281,6 +292,7 @@ export class Workshop {
       this.piece(new THREE.CylinderGeometry(.7, .4, 1.5, 32, 1, true), beam, x, FLOOR + 1.4, .15);
       this.beams.set(index, { glow, beam });
       if (purchased.includes(index)) this.sold(index);
+      else if (spec.combo) this.plateModel(spec, index, x, 1.05, .15);
       else this.model(spec, index, x, .98, .15);
       // Hit area from just above the die down to the foot of the pedestal.
       this.exhibits.set(`inspect/${index}`, { top: new THREE.Vector3(x, 1.62, .15), bottom: new THREE.Vector3(x, FLOOR, .72),
@@ -290,7 +302,11 @@ export class Workshop {
 
   sold(index) {
     const item = this.models.get(index);
-    if (item) { this.scene.remove(item.mesh); this.art.release(item.mesh); this.models.delete(index); }
+    if (item) {
+      this.scene.remove(item.mesh);
+      if (!item.isPlate) this.art.release(item.mesh);
+      this.models.delete(index);
+    }
     const light = this.beams.get(index);
     if (light) { light.glow.color.multiplyScalar(.35); light.beam.opacity = .035; }
   }
@@ -551,9 +567,15 @@ export class Workshop {
     if (this.fire) this.animateFire(t);
     if (this.mode === 'gallery') for (const [id, item] of this.models) {
       const chosen = this.selected === id;
-      item.mesh.position.y = item.home.y + Math.sin(t * 2.1 + id * 1.4) * .09 + (chosen ? .12 : 0);
-      item.mesh.rotation.set(.33 + Math.sin(t + id) * .19, t * (.6 + id * .09) + id * .9, .16 + Math.cos(t + id) * .12);
-      item.mesh.scale.setScalar(chosen ? .98 : .86);
+      if (item.isPlate) {
+        item.mesh.position.y = item.home.y + Math.sin(t * 1.8 + id * 1.2) * .04 + (chosen ? .08 : 0);
+        item.mesh.rotation.y = Math.sin(t * 1.2 + id * 0.7) * .22;
+        item.mesh.scale.setScalar(chosen ? 1.05 : 0.95);
+      } else {
+        item.mesh.position.y = item.home.y + Math.sin(t * 2.1 + id * 1.4) * .09 + (chosen ? .12 : 0);
+        item.mesh.rotation.set(.33 + Math.sin(t + id) * .19, t * (.6 + id * .09) + id * .9, .16 + Math.cos(t + id) * .12);
+        item.mesh.scale.setScalar(chosen ? .98 : .86);
+      }
     }
     if (this.mode === 'kiln') for (const [id, item] of this.models) {
       if (this.pointer?.moving && this.pointer.id === id) continue;

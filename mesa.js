@@ -1,12 +1,16 @@
-import { t, language, scoreText } from './idioma.js?v=esmaltes-1';
+import { t, language, scoreText } from './idioma.js?v=esmaltes-30';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from './vendor/RoundedBoxGeometry.js';
-import { DiceArt, tileArt } from './arte.js?v=esmaltes-1';
-import { projectBoard } from './unicos.js?v=esmaltes-1';
+import { DiceArt, tileArt, plateArt } from './arte.js?v=esmaltes-30';
+import { projectBoard } from './unicos.js?v=esmaltes-30';
+import { getDieSpec, comboCatalog } from './catalogo.js?v=esmaltes-30';
 
 export const HAND = 32;
 export const POWER = 48;
+export const UNIQUE = 64;
+export const PLATE = 80;
 export const ROLL_TIME = 850;
+export const comboKeys = ['pair', 'trio', 'quartet', 'straight', 'longStraight', 'line', 'mono', 'chromatic', 'panel'];
 const spacing = 1.365;
 const xAxis = new THREE.Vector3(1, 0, 0);
 const yAxis = new THREE.Vector3(0, 1, 0);
@@ -60,10 +64,17 @@ export class Table {
     this.effects = new THREE.Group();
     this.powerShelf = new THREE.Group();
     this.powerMeshes = [];
+    this.plateShelf = new THREE.Group();
+    this.plateMeshes = [];
+    this.plateEntries = [];
+    this.litPlates = new Set();
+    this.scoringPlate = -1;
     this.highlight = new THREE.Group();
     this.lit = new Set();
     this.models = new Map();
     this.extras = new Map();
+    this.uniqueTray = [];
+    this.uniqueRackGroup = new THREE.Group();
     this.tray = [];
     this.cells = [];
     this.tags = [];
@@ -73,7 +84,7 @@ export class Table {
     this.selected = -1;
     this.focused = -1;
     this.dirty = true;
-    this.scene.add(this.board, this.effects, this.powerShelf, this.highlight);
+    this.scene.add(this.board, this.effects, this.powerShelf, this.plateShelf, this.highlight, this.uniqueRackGroup);
     this.reset();
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(canvas);
@@ -112,10 +123,10 @@ export class Table {
     const floor = mesh(new THREE.PlaneGeometry(40, 40), material(0x142132), 0, -.93, 0, false);
     floor.rotation.x = -Math.PI / 2;
     this.scene.add(floor);
-    this.scene.add(mesh(new RoundedBoxGeometry(10.6, .43, 9.75, 2, .12), this.wood, 0, -.67, -.09));
+    this.scene.add(mesh(new RoundedBoxGeometry(10.8, .43, 11.2, 2, .12), this.wood, 0, -.67, -.40));
     const tablecloth = new THREE.MeshStandardMaterial({ map: mat, roughness: .81 });
-    this.scene.add(mesh(new RoundedBoxGeometry(9.81, .08, 9.04, 1, .03),
-      [this.cobalt, this.cobalt, tablecloth, this.cobalt, this.cobalt, this.cobalt], 0, -.41, -.09, false));
+    this.scene.add(mesh(new RoundedBoxGeometry(10.0, .08, 10.5, 1, .03),
+      [this.cobalt, this.cobalt, tablecloth, this.cobalt, this.cobalt, this.cobalt], 0, -.41, -.40, false));
 
     this.scene.add(mesh(new RoundedBoxGeometry(4.84, .24, 1.27, 2, .105), this.cobalt, 0, -.22, 2.83));
     this.scene.add(mesh(new RoundedBoxGeometry(4.68, .073, 1.13, 1, .035), this.brass, 0, -.083, 2.83));
@@ -149,12 +160,71 @@ export class Table {
       1.055 + (Math.floor(index / this.cols) + 1 - this.rows) * spacing);
   }
 
+  isPortrait() {
+    const width = this.canvas?.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 1);
+    const height = this.canvas?.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 1);
+    return (width / height) < 0.88;
+  }
+
   slot(index) { return new THREE.Vector3((index - 1.5) * 1.105, .052, 2.83); }
 
+  uniqueSlot(index) {
+    if (this.isPortrait()) {
+      return new THREE.Vector3((index - 1) * 1.105, .052, 4.08);
+    }
+    const leftX = -(this.cols * spacing / 2 + 1.28);
+    const z = -0.31 + index * spacing;
+    return new THREE.Vector3(leftX, .052, z);
+  }
+
   destination(id) {
+    if (id >= UNIQUE) {
+      const at = this.uniqueSlot(id - UNIQUE);
+      at.y += .43;
+      return at;
+    }
     const at = id >= HAND ? this.slot(id - HAND) : this.cell(id);
     at.y += .43;
     return at;
+  }
+
+  rebuildUniqueRack() {
+    if (!this.uniqueRackGroup) return;
+    this.uniqueRackGroup.clear();
+    this.uniqueTray = [];
+    const portrait = this.isPortrait();
+    this.rackIsPortrait = portrait;
+
+    if (portrait) {
+      const uWidth = 3.65;
+      const zRack = 4.08;
+      this.uniqueRackGroup.add(mesh(new RoundedBoxGeometry(uWidth, .22, 1.15, 2, .09), this.cobalt, 0, -.23, zRack));
+      this.uniqueRackGroup.add(mesh(new RoundedBoxGeometry(uWidth - .14, .07, 1.02, 1, .03), this.brass, 0, -.088, zRack));
+      this.uniqueRackGroup.add(mesh(new RoundedBoxGeometry(uWidth - .24, .08, .92, 1, .03), this.slates, 0, -.048, zRack));
+      const socketGeometry = new RoundedBoxGeometry(.95, .102, .88, 2, .045);
+      for (let slot = 0; slot < 3; slot++) {
+        const loc = this.uniqueSlot(slot);
+        const socket = mesh(socketGeometry, this.slates, loc.x, -.002, loc.z, false);
+        socket.userData.id = UNIQUE + slot;
+        this.uniqueTray.push(socket);
+        this.uniqueRackGroup.add(socket);
+      }
+    } else {
+      const leftX = -(this.cols * spacing / 2 + 1.28);
+      const rackCenterZ = 1.055;
+      this.uniqueRackGroup.add(mesh(new RoundedBoxGeometry(1.28, .24, 3 * spacing + .22, 2, .1), this.cobalt, leftX, -.22, rackCenterZ));
+      this.uniqueRackGroup.add(mesh(new RoundedBoxGeometry(1.15, .073, 3 * spacing + .1, 1, .035), this.brass, leftX, -.083, rackCenterZ));
+      this.uniqueRackGroup.add(mesh(new RoundedBoxGeometry(1.05, .086, 3 * spacing, 1, .036), this.slates, leftX, -.044, rackCenterZ));
+      const socketGeometry = new RoundedBoxGeometry(.95, .102, .95, 2, .045);
+      for (let slot = 0; slot < 3; slot++) {
+        const loc = this.uniqueSlot(slot);
+        const socket = mesh(socketGeometry, this.slates, loc.x, -.002, loc.z, false);
+        socket.userData.id = UNIQUE + slot;
+        this.uniqueTray.push(socket);
+        this.uniqueRackGroup.add(socket);
+      }
+    }
+    this.dirty = true;
   }
 
   configure(rows, cols) {
@@ -185,36 +255,141 @@ export class Table {
     }
     this.board.add(set.group);
     this.cells = set.cells;
+
+    this.rebuildUniqueRack();
+
     this.reset();
   }
 
-  mount(powers) {
-    const key = `${this.rows}/${powers.join('/')}`;
+  mount(powers, comboLevels = {}) {
+    const levelStr = comboKeys.map(k => comboLevels[k] || 1).join('-');
+    const key = `${this.rows}/${powers.join('/')}/${levelStr}`;
     if (key === this.mountKey) return;
     this.mountKey = key;
+
     for (const piece of this.powerShelf.children) {
       piece.geometry.dispose();
-      if (Array.isArray(piece.material)) piece.material[2].dispose();
+      if (Array.isArray(piece.material)) piece.material[2]?.dispose?.();
     }
     this.powerShelf.clear();
     this.powerMeshes = [];
-    if (!powers.length) { this.dirty = true; return; }
-    const z = this.cell(0).z - 1.32;
-    const gap = 1.02;
-    this.powerShelf.add(mesh(new RoundedBoxGeometry(powers.length * gap + .15, .55, 1.11, 2, .075), this.cobalt, 0, -.052, z));
-    powers.forEach((id, index) => {
-      const surface = new THREE.MeshStandardMaterial({ map: tileArt(id).map, roughness: .38 });
-      const piece = mesh(new RoundedBoxGeometry(.93, .16, .93, 2, .055),
-        [this.brass, this.brass, surface, this.brass, this.brass, this.brass], (index - (powers.length - 1) / 2) * gap, .303, z);
-      piece.userData.id = POWER + index;
-      this.powerMeshes.push(piece);
-      this.powerShelf.add(piece);
+
+    const zPower = this.cell(0).z - 1.25;
+    if (powers.length) {
+      const gap = 1.02;
+      this.powerShelf.add(mesh(new RoundedBoxGeometry(powers.length * gap + .15, .55, 1.11, 2, .075), this.cobalt, 0, -.052, zPower));
+      powers.forEach((id, index) => {
+        const surface = new THREE.MeshStandardMaterial({ map: tileArt(id).map, roughness: .38 });
+        const piece = mesh(new RoundedBoxGeometry(.93, .16, .93, 2, .055),
+          [this.brass, this.brass, surface, this.brass, this.brass, this.brass], (index - (powers.length - 1) / 2) * gap, .303, zPower);
+        piece.userData.id = POWER + index;
+        this.powerMeshes.push(piece);
+        this.powerShelf.add(piece);
+      });
+    }
+
+    // Plate shelf: two-tier Spanish alacena in cobalt and brass
+    // Lower tier: 5 value combos (pair, trio, quartet, straight, longStraight)
+    // Upper tier: 4 pattern/color combos (line, mono, chromatic, panel) with open center for HUD
+    for (const piece of this.plateShelf.children) {
+      piece.traverse(child => {
+        if (child.geometry) child.geometry.dispose();
+        if (Array.isArray(child.material)) child.material.forEach(mat => { if (mat !== this.brass && mat !== this.clay) mat?.dispose?.(); });
+        else if (child.material && child.material !== this.cobalt && child.material !== this.brass && child.material !== this.clay) child.material.dispose?.();
+      });
+    }
+    this.plateShelf.clear();
+    this.plateMeshes = [];
+    this.plateEntries = [];
+
+    const zLower = zPower - 0.74;
+    const zUpper = zLower - 0.52;
+    const shelfWidth = 5.24;
+    const upperWidth = 4.60;
+
+    // Lower tier shelf: wide sturdy base holding 5 plates (cobalt with brass inlay and retaining lip)
+    this.plateShelf.add(mesh(new RoundedBoxGeometry(shelfWidth, .22, .56, 2, .05), this.cobalt, 0, .05, zLower));
+    this.plateShelf.add(mesh(new RoundedBoxGeometry(shelfWidth - .04, .025, .50, 1, .015), this.brass, 0, .165, zLower));
+    this.plateShelf.add(mesh(new THREE.BoxGeometry(shelfWidth - .06, .026, .02), this.brass, 0, .185, zLower + .23));
+
+    // Upper tier shelf: stepped back holding 4 plates (cobalt with brass inlay and retaining lip)
+    this.plateShelf.add(mesh(new RoundedBoxGeometry(upperWidth, .15, .50, 2, .04), this.cobalt, 0, .36, zUpper));
+    this.plateShelf.add(mesh(new RoundedBoxGeometry(upperWidth - .04, .025, .44, 1, .015), this.brass, 0, .44, zUpper));
+    this.plateShelf.add(mesh(new THREE.BoxGeometry(upperWidth - .06, .026, .02), this.brass, 0, .46, zUpper + .21));
+
+    // Side pillars connecting the tiers
+    const midZ = (zLower + zUpper) / 2;
+    for (const side of [-1, 1]) {
+      const posX = side * (shelfWidth * 0.44 - 0.08);
+      this.plateShelf.add(mesh(new RoundedBoxGeometry(.16, .48, .44, 2, .035), this.cobalt, posX, .26, midZ));
+      this.plateShelf.add(mesh(new RoundedBoxGeometry(.18, .03, .46, 1, .015), this.brass, posX, .505, midZ));
+    }
+
+    // Backboard and gilded crown molding behind the upper tier
+    const backZ = zUpper - 0.24;
+    this.plateShelf.add(mesh(new RoundedBoxGeometry(upperWidth + .10, .54, .05, 2, .02), this.cobalt, 0, .56, backZ));
+    this.plateShelf.add(mesh(new THREE.BoxGeometry(upperWidth + .12, .04, .07), this.brass, 0, .835, backZ));
+
+    // Mount 9 mastery plates:
+    // Lower tier (indices 0..4, 5 plates): pair, trio, quartet, straight, longStraight
+    // Upper tier (indices 5..8, 4 plates): line, mono, chromatic, panel
+    const radius = 0.38;
+    const height = 0.048;
+    const plateGeom = new THREE.CylinderGeometry(radius, radius * 0.90, height, 32);
+    const sideMat = this.brass;
+    const backMat = this.clay;
+
+    // X positions for upper 4 plates: left pair (-1.62, -0.66) and right pair (+0.66, +1.62)
+    // Leaves a clear central corridor for the HUD badge
+    const upperX = [-1.62, -0.66, 0.66, 1.62];
+
+    const haloGeom = new THREE.TorusGeometry(radius + 0.045, 0.026, 10, 36);
+    comboKeys.forEach((comboKey, index) => {
+      const level = comboLevels[comboKey] || 1;
+      const isLower = index < 5;
+      const x = isLower ? (index - 2) * 0.96 : upperX[index - 5];
+      const y = isLower ? 0.48 : 0.74;
+      const z = (isLower ? zLower : zUpper) + 0.04;
+
+      const plateArtObj = plateArt(comboKey, level);
+      const topMat = new THREE.MeshStandardMaterial({
+        map: plateArtObj.map,
+        emissive: new THREE.Color(0xffd779),
+        emissiveMap: plateArtObj.map,
+        emissiveIntensity: 0,
+        roughness: 0.25,
+        metalness: 0.15
+      });
+      const piece = mesh(plateGeom, [sideMat, topMat, backMat], x, y, z);
+      piece.rotation.x = Math.PI / 2 - 0.32;
+      piece.userData.id = PLATE + index;
+      piece.userData.combo = comboKey;
+      piece.userData.level = level;
+
+      const haloMat = new THREE.MeshBasicMaterial({ color: 0xffe28a, transparent: true, opacity: 0, depthWrite: false });
+      const halo = mesh(haloGeom, haloMat, x, y, z - 0.015, false);
+      halo.rotation.x = -0.32;
+
+      // Small brass easel support behind plate
+      const easel = mesh(new THREE.BoxGeometry(0.035, 0.24, 0.14), this.brass, x, y - 0.05, z - 0.07);
+      easel.rotation.x = -0.32;
+      this.plateShelf.add(easel);
+
+      this.plateMeshes.push(piece);
+      this.plateEntries.push({ mesh: piece, halo, topMat, haloMat, baseY: y });
+      this.plateShelf.add(halo, piece);
     });
+
     this.dirty = true;
   }
 
   powerAnchor(index) {
     const piece = this.powerMeshes[index];
+    return piece ? this.anchor(piece.position) : null;
+  }
+
+  plateAnchor(index) {
+    const piece = this.plateMeshes[index];
     return piece ? this.anchor(piece.position) : null;
   }
 
@@ -229,18 +404,31 @@ export class Table {
   resize() {
     const { clientWidth: width, clientHeight: height } = this.canvas;
     if (!width || !height) return;
+    const aspect = width / height;
+    const isPort = aspect < 0.88;
+    if (this.rackIsPortrait !== undefined && this.rackIsPortrait !== isPort) {
+      this.rebuildUniqueRack();
+      for (const [die, piece] of this.models) {
+        if (piece.id >= UNIQUE) {
+          const to = this.destination(piece.id);
+          piece.to.copy(to);
+          if (!piece.dragged) piece.mesh.position.copy(to);
+        }
+      }
+    }
     if (width !== this.width || height !== this.height) this.renderer.setSize(width, height, false);
     this.width = width;
     this.height = height;
-    this.camera.aspect = width / height;
+    this.camera.aspect = aspect;
     this.camera.fov = Math.max(33, 2 * THREE.MathUtils.radToDeg(Math.atan(Math.tan(angle(22)) / this.camera.aspect)));
     this.camera.updateProjectionMatrix();
     this.updateCamera();
   }
 
   reset() {
-    this.azimuth = this.canvas.clientWidth < 580 ? 9 : 16;
-    this.elevation = this.canvas.clientWidth < 580 ? 65 : 59;
+    const portrait = this.isPortrait();
+    this.azimuth = portrait ? 9 : 16;
+    this.elevation = portrait ? 65 : 59;
     this.zoom = 1;
     this.updateCamera();
   }
@@ -256,10 +444,11 @@ export class Table {
   zoomBy(factor) { this.zoom = clamp(this.zoom * factor, .83, 1.42); this.updateCamera(); }
 
   updateCamera() {
+    const portrait = this.isPortrait();
     const pitch = angle(this.elevation);
     const yaw = angle(this.azimuth);
-    const distance = (10.35 + (this.rows - 2) * 1.47 + (this.cols - 3) * .71) * this.zoom;
-    const target = new THREE.Vector3(0, -.03, 1.19 - (this.rows - 2) * .60);
+    const distance = (10.55 + (this.rows - 2) * 1.47 + (this.cols - 3) * .71) * this.zoom;
+    const target = new THREE.Vector3(0, -.03, (portrait ? -.06 : .06) - (this.rows - 2) * .60);
     this.camera.position.set(Math.sin(yaw) * Math.cos(pitch) * distance, Math.sin(pitch) * distance,
       Math.cos(yaw) * Math.cos(pitch) * distance).add(target);
     this.camera.lookAt(target);
@@ -286,7 +475,7 @@ export class Table {
       if (!extra.source || targets.includes(extra.source.mesh)) targets.push(extra.mesh);
     }
     targets.push(...this.cells);
-    if (!boardOnly) targets.push(...this.tray, ...this.powerMeshes);
+    if (!boardOnly) targets.push(...this.tray, ...this.uniqueTray, ...this.powerMeshes, ...this.plateMeshes);
     const hit = this.ray.intersectObjects(targets, false)[0];
     return hit?.object.userData.id ?? -1;
   }
@@ -330,13 +519,14 @@ export class Table {
   sync(state, now, { roll = false, dissolve = false } = {}) {
     const { rows, cols } = state;
     if (rows !== this.rows || cols !== this.cols) this.configure(rows, cols);
-    this.mount(state.powers);
+    this.mount(state.powers, state.comboLevels);
     const { board } = projectBoard(state);
     const live = new Map();
     const extraDice = new Map();
     state.board.forEach((die, id) => { if (die) live.set(die, id); });
     state.hand.forEach((die, slot) => { if (die) live.set(die, HAND + slot); });
-    board.forEach((die, id) => { if (die?.echo) extraDice.set(id, { die, spec: state.bag[die.id] }); });
+    state.uniqueRack?.forEach((die, slot) => { if (die) live.set(die, UNIQUE + slot); });
+    board.forEach((die, id) => { if (die?.echo) extraDice.set(id, { die, spec: getDieSpec(state, die) }); });
     for (const [die, piece] of this.models) {
       if (live.has(die) || piece.removing) continue;
       if (dissolve && piece.id < HAND) {
@@ -349,8 +539,8 @@ export class Table {
     }
     for (const [die, id] of live) {
       const seen = id < HAND ? board[id] : die;
-      const spec = state.bag[die.id];
-      const extraValue = id >= HAND && spec.unique === 'twin' ? die.value + 1 : seen.extra;
+      const spec = getDieSpec(state, die);
+      const extraValue = id >= HAND && spec.unique === 'twin' ? (die.value % 6) + 1 : seen.extra;
       const paired = extraValue != null;
       const size = paired ? twinSize : 1;
       const variant = appearanceKey(seen);
@@ -367,7 +557,17 @@ export class Table {
           existing.spec = spec;
           existing.variant = variant;
         }
-        if (existing.id !== id || existing.dragged || existing.size !== size) {
+        const rotation = rotationFor(die);
+        const shouldRoll = id >= HAND && (roll === true || (roll instanceof Set && (roll.has(die.id) || (die.isUnique && roll.has(`u_${die.uniqueIndex}`)))));
+        if (shouldRoll) {
+          existing.from.copy(existing.mesh.position);
+          existing.to.copy(to);
+          existing.rotation = rotation;
+          existing.start = now + (die.slot ?? 0) * 54;
+          existing.duration = 680;
+          existing.rolling = true;
+          existing.dragged = false;
+        } else if (existing.id !== id || existing.dragged || existing.size !== size) {
           existing.from.copy(existing.mesh.position);
           existing.to.copy(to);
           existing.size = size;
@@ -376,6 +576,10 @@ export class Table {
           existing.start = now;
           existing.duration = 260;
           existing.rolling = existing.dragged = false;
+          existing.rotation = rotation;
+        } else {
+          existing.rotation = rotation;
+          if (!existing.rolling) existing.mesh.quaternion.copy(rotation);
         }
       } else {
         const model = this.art.create(appearance(spec, seen), seen.stone);
@@ -384,7 +588,7 @@ export class Table {
         model.userData.id = id;
         const rotation = rotationFor(die);
         model.quaternion.copy(rotation);
-        const rolling = id >= HAND && (roll === true || roll instanceof Set && roll.has(die.id));
+        const rolling = id >= HAND && (roll === true || (roll instanceof Set && (roll.has(die.id) || (die.isUnique && roll.has(`u_${die.uniqueIndex}`)))));
         const piece = { mesh: model, id, spec, variant, size, to, from: to.clone(), rotation,
           rolling, start: now + die.slot * 54, duration: rolling ? 680 : 0 };
         this.models.set(die, piece);
@@ -418,10 +622,16 @@ export class Table {
     for (const [id, piece] of this.extras) this.removeExtra(id, piece);
     this.marks([]);
     this.lightCells([]);
+    this.pulsePlate(null);
     this.dirty = true;
   }
 
-  marks(matches, powers = []) {
+  pulsePlate(comboKey = null) {
+    this.scoringPlate = comboKey ? comboKeys.indexOf(comboKey) : -1;
+    this.dirty = true;
+  }
+
+  marks(matches, powers = [], activeSteps = []) {
     for (const object of this.effects.children) object.geometry.dispose();
     this.effects.clear();
     this.labels.replaceChildren();
@@ -436,39 +646,90 @@ export class Table {
           match.column ? this.aqua : this.gold, center.x + (match.column ? side * .629 : 0),
           match.column ? .365 : .374, center.z + (match.column ? 0 : side * .629), false));
       }
-      const tag = document.createElement('span');
-      tag.className = `match${match.column ? ' column' : ''}`;
-      const points = match.points ? `+${match.points}` : '';
-      const bonus = match.add ? `+${(match.add / 100).toLocaleString(language)}×` : '';
-      tag.textContent = `${scoreText(match.name)} ${[points, bonus].filter(Boolean).join(' · ')}`;
-      this.labels.append(tag);
-      first.y = .63;
-      if (match.column) first.z -= .79;
-      else first.x -= .77;
-      this.tags.push({ tag, anchor: first, column: match.column });
     }
-    for (const power of powers) {
+    const plateTotals = new Map();
+    for (const step of activeSteps) {
+      if (!step?.combo) continue;
+      const cur = plateTotals.get(step.combo) || { points: 0, add: 0 };
+      cur.points += step.points || 0;
+      cur.add += step.add || 0;
+      plateTotals.set(step.combo, cur);
+    }
+    this.litPlates = new Set();
+    const locale = language === 'en' ? 'en-US' : 'es-ES';
+    for (const [comboKey, total] of plateTotals) {
+      const idx = comboKeys.indexOf(comboKey);
+      if (idx < 0) continue;
+      this.litPlates.add(idx);
+      const piece = this.plateMeshes[idx];
+      if (!piece) continue;
+      const parts = [];
+      if (total.points) parts.push(`+${total.points}`);
+      if (total.add) parts.push(`+${(total.add / 100).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}×`);
+      if (!parts.length) continue;
       const tag = document.createElement('span');
-      tag.className = 'match unique-mark';
-      tag.textContent = `${t(power.name)} · +${(power.points ?? power.add / 100).toLocaleString(language)}${power.add ? '×' : ''}`;
-      const anchor = this.cell(power.cells[0]);
-      anchor.y = 1.31;
+      tag.className = `match plate-badge${total.add && !total.points ? ' mult' : ''}`;
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'plate-badge-name';
+      nameSpan.textContent = t(comboCatalog[comboKey].name);
+      const valSpan = document.createElement('span');
+      valSpan.className = 'plate-badge-val';
+      valSpan.textContent = parts.join(' · ');
+      tag.append(nameSpan, valSpan);
       this.labels.append(tag);
-      this.tags.push({ tag, anchor, column: true });
+      const anchor = piece.position.clone().add(new THREE.Vector3(0, -0.26, 0.14));
+      this.tags.push({ tag, anchor, plate: true });
     }
     this.dirty = true;
   }
 
   positionTags() {
     const reserved = [];
-    for (const { tag, anchor, column } of this.tags) {
+    const hudObstacles = [];
+    const canvasRect = this.canvas.getBoundingClientRect();
+    for (const sel of ['.medallion-cluster', '#order:not([hidden])', '#boss:not([hidden])', '.cartouche']) {
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      hudObstacles.push({
+        x: r.left - canvasRect.left - 4,
+        y: r.top - canvasRect.top - 4,
+        width: r.width + 8,
+        height: r.height + 8,
+      });
+    }
+    const shelfLimit = this.plateMeshes[0]
+      ? (1 - this.plateMeshes[0].position.clone().add(new THREE.Vector3(0, -0.34, 0.25)).project(this.camera).y) / 2 * this.height
+      : this.height;
+    for (const { tag, anchor, column, plate } of this.tags) {
       const screen = anchor.clone().project(this.camera);
       const width = tag.offsetWidth;
       const height = tag.offsetHeight;
-      const x = clamp((screen.x + 1) / 2 * this.width - width * (column ? .5 : 1), 4, this.width - width - 4);
-      let y = clamp((1 - screen.y) / 2 * this.height - (column ? height + 3 : height / 2), 4, this.height - height - 4);
-      while (reserved.some(other => x < other.x + other.width && x + width > other.x && y < other.y + other.height && y + height > other.y)
-          && y + height * 2 + 8 < this.height) y += height + 4;
+      const rawX = (screen.x + 1) / 2 * this.width - (plate || column ? width * .5 : width);
+      const rawY = (1 - screen.y) / 2 * this.height - (plate ? height * .5 : column ? height + 3 : height / 2);
+      const x = clamp(rawX, 4, this.width - width - 4);
+      const maxY = plate ? Math.min(this.height - height - 4, Math.max(4, shelfLimit + 12)) : this.height - height - 4;
+      const obstacles = plate ? [...reserved, ...hudObstacles] : reserved;
+      let y = clamp(rawY, 4, maxY);
+      const overlaps = (cy) => obstacles.some(other => x < other.x + other.width && x + width > other.x && cy < other.y + other.height && cy + height > other.y);
+      if (overlaps(y)) {
+        if (plate) {
+          let down = y + 4;
+          while (down <= maxY && overlaps(down)) down += height + 3;
+          if (down <= maxY && !overlaps(down)) y = down;
+          else {
+            let up = y - height - 3;
+            while (up >= 4 && overlaps(up)) up -= height + 3;
+            if (up >= 4 && !overlaps(up)) y = up;
+          }
+        } else {
+          let up = y - height - 3;
+          while (up >= 4 && overlaps(up)) up -= height + 3;
+          if (up >= 4 && !overlaps(up)) y = up;
+          else while (overlaps(y) && y + height + 4 <= maxY) y += height + 4;
+        }
+      }
       reserved.push({ x, y, width, height });
       tag.style.transform = `translate(${Math.round(x)}px,${Math.round(y)}px)`;
     }
@@ -512,6 +773,32 @@ export class Table {
         piece.mesh.quaternion.copy(base.quaternion);
         piece.mesh.scale.copy(base.scale);
       } else piece.mesh.scale.setScalar(this.lit.has(id) ? .84 : .77);
+    }
+    for (let i = 0; i < this.plateEntries.length; i++) {
+      const entry = this.plateEntries[i];
+      const { mesh: piece, halo, topMat, haloMat, baseY } = entry;
+      const active = this.litPlates.has(i);
+      const scoring = this.scoringPlate === i;
+      const shimmer = active || scoring ? 0.5 + 0.5 * Math.sin(now * 0.008 + i * 0.7) : 0;
+      const targetScale = scoring ? 1.30 : active ? 1.18 : 1.0;
+      const targetY = baseY + (scoring ? 0.14 : active ? 0.07 : 0);
+      const targetEmissive = scoring ? 1.15 : active ? (0.45 + shimmer * 0.25) : 0;
+      const targetHalo = scoring ? 0.92 : active ? (0.48 + shimmer * 0.24) : 0;
+
+      if (Math.abs(piece.scale.x - targetScale) > 0.004 || Math.abs(piece.position.y - targetY) > 0.002) {
+        piece.scale.lerp(new THREE.Vector3(targetScale, targetScale, targetScale), 0.22);
+        piece.position.y += (targetY - piece.position.y) * 0.22;
+        halo.position.y = piece.position.y;
+        halo.scale.copy(piece.scale);
+        moving = true;
+      }
+      if (Math.abs(topMat.emissiveIntensity - targetEmissive) > 0.01 || Math.abs(haloMat.opacity - targetHalo) > 0.01) {
+        topMat.emissiveIntensity += (targetEmissive - topMat.emissiveIntensity) * 0.24;
+        haloMat.opacity += (targetHalo - haloMat.opacity) * 0.24;
+        halo.visible = haloMat.opacity > 0.01;
+        moving = true;
+      }
+      if (active || scoring) moving = true;
     }
     if (moving || this.dirty) {
       this.renderer.render(this.scene, this.camera);

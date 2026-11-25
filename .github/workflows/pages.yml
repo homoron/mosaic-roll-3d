@@ -1,4 +1,4 @@
-name: Deploy Mosaic Roll 3D to GitHub Pages
+name: "Deploy Bescuit: Dau i Forn to GitHub Pages"
 
 on:
   workflow_dispatch:
@@ -9,25 +9,86 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+  actions: write
+
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.publish.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - uses: actions/configure-pages@v5
+      - name: Versionar push automáticamente (0.1.x)
+        run: |
+          HEAD_TAG=$(git tag --points-at HEAD --list 'v0.1*' | head -n 1)
+          if [ -n "$HEAD_TAG" ]; then
+            NEXT_VER="${HEAD_TAG#v}"
+          else
+            MAX_PATCH=0
+            if [ -f VERSION ]; then
+              VFILE=$(tr -d '[:space:]' < VERSION)
+              if [[ "$VFILE" =~ ^0\.1\.([0-9]+)$ ]]; then
+                MAX_PATCH="${BASH_REMATCH[1]}"
+              fi
+            fi
+            for T in $(git tag -l 'v0.1.*'); do
+              P="${T#v0.1.}"
+              if [[ "$P" =~ ^[0-9]+$ ]] && [ "$P" -gt "$MAX_PATCH" ]; then
+                MAX_PATCH="$P"
+              fi
+            done
+            NEXT_VER="0.1.$((MAX_PATCH + 1))"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag "v$NEXT_VER"
+            git push origin "v$NEXT_VER"
+          fi
+          echo "APP_VERSION=$NEXT_VER" >> "$GITHUB_ENV"
       - name: Preparar archivos del juego
         run: |
           mkdir -p _site
-          cp -r .nojekyll index.html estilo.css juego.js mesa.js reglas.js catalogo.js arte.js mercado.js taller.js unicos.js coleccion.js idioma.js ingles.js iconos.js musica.js portada.jpg mesa.jpg azulejo.jpg partida.webp Mosaic-Roll-3D.zip vendor v1 v2 v3 _site/
+          cp -r .nojekyll VERSION index.html estilo.css juego.js mesa.js reglas.js catalogo.js arte.js mercado.js taller.js unicos.js coleccion.js idioma.js valenciano.js ingles.js frances.js iconos.js musica.js musica-umbria.mp3 portada.jpg mesa.jpg azulejo.jpg partida.webp Mosaic-Roll-3D.zip vendor v1 v2 v3 _site/
+          printf '%s\n' "$APP_VERSION" > _site/VERSION
+          sed -i "s|<span class=\"patio-version\" id=\"app-version\">[^<]*</span>|<span class=\"patio-version\" id=\"app-version\">v${APP_VERSION}</span>|g" _site/index.html
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
-      - uses: actions/deploy-pages@v4
-        id: publish
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.publish.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - id: publish
+        uses: actions/deploy-pages@v4
+      - name: Limpiar artifacts antiguos de GitHub Pages
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100
+            });
+            for (const artifact of artifacts) {
+              if (artifact.name === 'github-pages' && artifact.workflow_run?.id !== context.runId) {
+                try {
+                  await github.rest.actions.deleteArtifact({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    artifact_id: artifact.id
+                  });
+                } catch (err) {
+                  core.info(`No se pudo borrar artifact ${artifact.id}: ${err.message}`);
+                }
+              }
+            }

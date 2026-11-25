@@ -1,0 +1,308 @@
+name: Build Android APK & AAB
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Versión visible (ej. 0.1.2; vacío lee VERSION)'
+        required: false
+        default: ''
+        type: string
+      version_code:
+        description: 'Código entero para Google Play (auto usa run_number)'
+        required: false
+        default: ''
+        type: string
+      app_id:
+        description: 'Application ID (paquete Android único)'
+        required: false
+        default: 'com.dnextcom.bescuit'
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: android-build
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Configurar Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Calcular versión y preparar archivos web
+        run: |
+          if [ -n "${{ inputs.version_code }}" ]; then
+            VERSION_CODE="${{ inputs.version_code }}"
+          else
+            VERSION_CODE="${{ github.run_number }}"
+          fi
+
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION_NAME="${GITHUB_REF_NAME#v}"
+          elif [ -n "${{ inputs.version_name }}" ]; then
+            VERSION_NAME="${{ inputs.version_name }}"
+          elif [ -f VERSION ]; then
+            VERSION_NAME="$(tr -d '[:space:]' < VERSION)"
+          else
+            VERSION_NAME="0.1.${{ github.run_number }}"
+          fi
+
+          APP_ID="${{ inputs.app_id || 'com.dnextcom.bescuit' }}"
+
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "APP_ID=$APP_ID" >> "$GITHUB_ENV"
+
+          mkdir -p build-app/www
+          cp -r index.html estilo.css juego.js mesa.js reglas.js catalogo.js arte.js mercado.js taller.js unicos.js coleccion.js idioma.js valenciano.js ingles.js frances.js iconos.js musica.js musica-umbria.mp3 portada.jpg mesa.jpg azulejo.jpg partida.webp vendor build-app/www/
+
+      - name: Inicializar proyecto Capacitor Android
+        working-directory: build-app
+        run: |
+          npm init -y
+          npm install --silent @capacitor/core@^7 @capacitor/cli@^7 @capacitor/android@^7
+          cat > capacitor.config.json <<EOF
+          {
+            "appId": "${APP_ID}",
+            "appName": "Bescuit: Dau i Forn",
+            "webDir": "www",
+            "android": {
+              "backgroundColor": "#070c22"
+            }
+          }
+          EOF
+          npx cap add android
+          npx cap sync android
+
+      - name: Generar iconos adaptativos y splash desde azulejo.jpg
+        run: |
+          python3 -m pip install --quiet pillow
+          python3 - <<'PY'
+          import os, glob
+          from PIL import Image, ImageDraw
+
+          res_dir = 'build-app/android/app/src/main/res'
+          tile = Image.open('azulejo.jpg').convert('RGBA')
+          bg_color = (7, 12, 34, 255)
+
+          sizes = {
+              'mipmap-mdpi': 48,
+              'mipmap-hdpi': 72,
+              'mipmap-xhdpi': 96,
+              'mipmap-xxhdpi': 144,
+              'mipmap-xxxhdpi': 192,
+          }
+
+          for folder, size in sizes.items():
+              out_dir = os.path.join(res_dir, folder)
+              os.makedirs(out_dir, exist_ok=True)
+
+              # Standard square icon
+              sq = tile.resize((size, size), Image.Resampling.LANCZOS)
+              sq.save(os.path.join(out_dir, 'ic_launcher.png'))
+
+              # Round icon with circular mask
+              mask = Image.new('L', (size, size), 0)
+              ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
+              rnd = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+              rnd.paste(sq, (0, 0), mask)
+              rnd.save(os.path.join(out_dir, 'ic_launcher_round.png'))
+
+              # Adaptive foreground (108dp canvas with ~62% centered safe zone)
+              fg_size = int(size * 108 / 48)
+              fg = Image.new('RGBA', (fg_size, fg_size), (0, 0, 0, 0))
+              inner = int(fg_size * 0.62)
+              inner_tile = tile.resize((inner, inner), Image.Resampling.LANCZOS)
+              offset = (fg_size - inner) // 2
+              fg.paste(inner_tile, (offset, offset))
+              fg.save(os.path.join(out_dir, 'ic_launcher_foreground.png'))
+
+          # Clean vector foregrounds so raster ceramic tile shows cleanly
+          for stale in [
+              os.path.join(res_dir, 'drawable-v24', 'ic_launcher_foreground.xml'),
+              os.path.join(res_dir, 'drawable', 'ic_launcher_background.xml'),
+          ]:
+              if os.path.exists(stale):
+                  os.remove(stale)
+
+          values_bg = os.path.join(res_dir, 'values', 'ic_launcher_background.xml')
+          with open(values_bg, 'w') as f:
+              f.write('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#070C22</color>\n</resources>\n')
+
+          anydpi_dir = os.path.join(res_dir, 'mipmap-anydpi-v26')
+          os.makedirs(anydpi_dir, exist_ok=True)
+          adaptive_xml = '''<?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_background"/>
+              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+          </adaptive-icon>
+          '''
+          with open(os.path.join(anydpi_dir, 'ic_launcher.xml'), 'w') as f:
+              f.write(adaptive_xml)
+          with open(os.path.join(anydpi_dir, 'ic_launcher_round.xml'), 'w') as f:
+              f.write(adaptive_xml)
+
+          # Clean orientation splash images and create unified dark splash
+          for old_splash in glob.glob(os.path.join(res_dir, 'drawable-*', 'splash.png')):
+              os.remove(old_splash)
+          splash = Image.new('RGBA', (1080, 1920), bg_color)
+          splash_tile = tile.resize((360, 360), Image.Resampling.LANCZOS)
+          splash.paste(splash_tile, ((1080 - 360) // 2, (1920 - 360) // 2))
+          splash.save(os.path.join(res_dir, 'drawable', 'splash.png'))
+          PY
+
+      - name: Configurar firma Release y versión Gradle
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          KEYSTORE_PATH="build-app/android/app/release.keystore"
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d '\r\n\t ' | base64 -d > "$KEYSTORE_PATH"
+            keytool -list -keystore "$KEYSTORE_PATH" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+            echo "KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "SIGNING_MODE=release" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Secrets de firma no configurados. Generando keystore temporal solo para pruebas (no apto para Google Play)."
+            TEMP_PASS="temp-mosaic-pass-123"
+            keytool -genkeypair -v -keystore "$KEYSTORE_PATH" -alias bescuit \
+              -keyalg RSA -keysize 2048 -validity 365 \
+              -storepass "$TEMP_PASS" -keypass "$TEMP_PASS" \
+              -dname "CN=Bescuit: Dau i Forn, O=Test, C=ES"
+            echo "KEYSTORE_PASSWORD=$TEMP_PASS" >> "$GITHUB_ENV"
+            echo "KEY_ALIAS=bescuit" >> "$GITHUB_ENV"
+            echo "KEY_PASSWORD=$TEMP_PASS" >> "$GITHUB_ENV"
+            echo "SIGNING_MODE=test" >> "$GITHUB_ENV"
+          fi
+
+          python3 - <<'PY'
+          import os, re
+
+          gradle_path = 'build-app/android/app/build.gradle'
+          with open(gradle_path, 'r') as f:
+              content = f.read()
+
+          v_code = os.environ['VERSION_CODE']
+          v_name = os.environ['VERSION_NAME']
+
+          content = re.sub(r'versionCode\s+\d+', f'versionCode {v_code}', content)
+          content = re.sub(r'versionName\s+"[^"]+"', f'versionName "{v_name}"', content)
+
+          signing_block = (
+              '    signingConfigs {\n'
+              '        release {\n'
+              '            storeFile file("release.keystore")\n'
+              '            storePassword System.getenv("KEYSTORE_PASSWORD")\n'
+              '            keyAlias System.getenv("KEY_ALIAS")\n'
+              '            keyPassword System.getenv("KEY_PASSWORD")\n'
+              '        }\n'
+              '    }\n'
+              '    buildTypes {\n'
+              '        release {\n'
+              '            signingConfig signingConfigs.release\n'
+          )
+
+          target = '    buildTypes {\n        release {\n'
+          assert target in content, 'No se encontró bloque buildTypes.release en build.gradle'
+          content = content.replace(target, signing_block, 1)
+
+          with open(gradle_path, 'w') as f:
+              f.write(content)
+          PY
+
+      - name: Compilar APK y AAB con Gradle
+        working-directory: build-app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease bundleRelease --no-daemon
+
+      - name: Empaquetar salidas
+        run: |
+          mkdir -p build-app/dist
+          SUFFIX="v${VERSION_NAME}"
+          if [ "$SIGNING_MODE" = "test" ]; then
+            SUFFIX="v${VERSION_NAME}-test"
+          fi
+          cp build-app/android/app/build/outputs/apk/release/app-release.apk "build-app/dist/Bescuit-Dau-i-Forn-${SUFFIX}.apk"
+          cp build-app/android/app/build/outputs/bundle/release/app-release.aab "build-app/dist/Bescuit-Dau-i-Forn-${SUFFIX}.aab"
+          ls -lh build-app/dist/
+
+      - name: Borrar artifacts antiguos de Android y Pages viejos
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100
+            });
+            const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+            let deleted = 0;
+            for (const artifact of artifacts) {
+              const isOldAndroid = artifact.name === 'bescuit-dau-i-forn-android' || artifact.name === 'mosaic-roll-3d-android' || artifact.name.startsWith('mosaic-roll-3d-android-');
+              const isStalePages = artifact.name === 'github-pages' && new Date(artifact.created_at).getTime() < twoHoursAgo;
+              if (isOldAndroid || isStalePages) {
+                try {
+                  await github.rest.actions.deleteArtifact({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    artifact_id: artifact.id
+                  });
+                  deleted++;
+                } catch (err) {
+                  core.info(`No se pudo borrar artifact ${artifact.id}: ${err.message}`);
+                }
+              }
+            }
+            core.info(`Artifacts antiguos eliminados: ${deleted}`);
+
+      - name: Subir APK y AAB generados
+        uses: actions/upload-artifact@v4
+        with:
+          name: bescuit-dau-i-forn-android
+          path: build-app/dist/*
+          retention-days: 7
+
+      - name: Resumen de compilación
+        run: |
+          {
+            echo "## Bescuit: Dau i Forn · Compilación Android"
+            echo "- **App ID:** \`${APP_ID}\`"
+            echo "- **Versión:** \`${VERSION_NAME}\` (\`versionCode: ${VERSION_CODE}\`)"
+            if [ "$SIGNING_MODE" = "release" ]; then
+              echo "- **Firma:** Keystore de producción (apto para Google Play Console)"
+            else
+              echo "- **Firma:** ⚠️ Keystore temporal de pruebas (instala el \`.apk\` para probar, pero **no** lo subas a Google Play aún)"
+              echo ""
+              echo "### Cómo activar firma permanente para Google Play"
+              echo "1. Genera un keystore: \`keytool -genkey -v -keystore release.keystore -alias bescuit -keyalg RSA -keysize 2048 -validity 10000\`"
+              echo "2. Codifícalo en base64: \`base64 -w 0 release.keystore\`"
+              echo "3. Añade en GitHub Secrets: \`ANDROID_KEYSTORE_BASE64\`, \`ANDROID_KEYSTORE_PASSWORD\`, \`ANDROID_KEY_ALIAS\`, \`ANDROID_KEY_PASSWORD\`."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

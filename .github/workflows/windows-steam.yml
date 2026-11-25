@@ -1,0 +1,259 @@
+name: Build Windows EXE (Steam)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Versión semántica (ej. 0.1.2; vacío lee VERSION)'
+        required: false
+        default: ''
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: windows-steam-build
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Calcular versión y preparar archivos del juego
+        shell: pwsh
+        run: |
+          if ("${{ github.ref }}" -like "refs/tags/v*") {
+            $ver = "${{ github.ref_name }}".TrimStart('v')
+          } elseif ("${{ inputs.version_name }}") {
+            $ver = "${{ inputs.version_name }}".TrimStart('v')
+          } elseif (Test-Path VERSION) {
+            $ver = (Get-Content VERSION -Raw).Trim().TrimStart('v')
+          } else {
+            $ver = "0.1.${{ github.run_number }}"
+          }
+          $semver = if ($ver -match '^\d+\.\d+$') { "$ver.0" } elseif ($ver -match '^\d+$') { "$ver.0.0" } else { $ver }
+          "VERSION_NAME=$ver" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "SEMVER_VERSION=$semver" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+          New-Item -ItemType Directory -Force -Path build-win/app | Out-Null
+          $files = @(
+            'index.html', 'estilo.css', 'juego.js', 'mesa.js', 'reglas.js',
+            'catalogo.js', 'arte.js', 'mercado.js', 'taller.js', 'unicos.js',
+            'coleccion.js', 'idioma.js', 'valenciano.js', 'ingles.js', 'frances.js',
+            'iconos.js', 'musica.js', 'musica-umbria.mp3', 'portada.jpg', 'mesa.jpg', 'azulejo.jpg', 'partida.webp'
+          )
+          foreach ($f in $files) {
+            Copy-Item $f -Destination build-win/app/
+          }
+          Copy-Item vendor -Destination build-win/app/vendor -Recurse
+
+      - name: Generar icono de Windows (.ico) desde azulejo.jpg
+        shell: pwsh
+        run: |
+          python -m pip install --quiet pillow
+          @'
+          from PIL import Image
+          img = Image.open('azulejo.jpg').convert('RGBA')
+          img.save('build-win/icon.ico', format='ICO', sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])
+          '@ | python -
+
+      - name: Crear proyecto Electron para Windows
+        shell: pwsh
+        working-directory: build-win
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          $pkg = @{
+            name = "bescuit-dau-i-forn"
+            version = $env:SEMVER_VERSION
+            description = "Bescuit: Dau i Forn - Roguelite de dados y ceramica en 3D"
+            author = "dnextcom"
+            main = "main.cjs"
+            build = @{
+              appId = "com.dnextcom.bescuit"
+              productName = "Bescuit Dau i Forn"
+              directories = @{ output = "dist" }
+              files = @("main.cjs", "icon.ico", "app/**/*")
+              win = @{
+                target = @(@{ target = "dir"; arch = @("x64") })
+                icon = "icon.ico"
+                signAndEditExecutable = $true
+              }
+            }
+          } | ConvertTo-Json -Depth 6
+          Set-Content -Path package.json -Value $pkg -Encoding utf8
+
+          $mainJs = @'
+          const { app, BrowserWindow, Menu, protocol, shell } = require('electron');
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const APP_DIR = path.join(__dirname, 'app');
+          const MIME = {
+            '.html': 'text/html; charset=utf-8',
+            '.js': 'application/javascript; charset=utf-8',
+            '.mjs': 'application/javascript; charset=utf-8',
+            '.css': 'text/css; charset=utf-8',
+            '.json': 'application/json; charset=utf-8',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.png': 'image/png',
+            '.webp': 'image/webp',
+            '.svg': 'image/svg+xml',
+            '.ico': 'image/x-icon',
+            '.mp3': 'audio/mpeg'
+          };
+
+          protocol.registerSchemesAsPrivileged([
+            {
+              scheme: 'app',
+              privileges: {
+                standard: true,
+                secure: true,
+                supportFetchAPI: true,
+                corsEnabled: true,
+                stream: true
+              }
+            }
+          ]);
+
+          function createWindow() {
+            Menu.setApplicationMenu(null);
+            const win = new BrowserWindow({
+              width: 1280,
+              height: 800,
+              minWidth: 480,
+              minHeight: 680,
+              title: 'Bescuit: Dau i Forn',
+              backgroundColor: '#070c22',
+              icon: path.join(__dirname, 'icon.ico'),
+              webPreferences: {
+                contextIsolation: true,
+                nodeIntegration: false,
+                sandbox: true
+              }
+            });
+
+            win.loadURL('app://bescuit/index.html');
+
+            win.webContents.on('before-input-event', (event, input) => {
+              if (input.type === 'keyDown' && input.key === 'F11') {
+                win.setFullScreen(!win.isFullScreen());
+                event.preventDefault();
+              }
+            });
+
+            win.webContents.setWindowOpenHandler(({ url }) => {
+              if (url.startsWith('https://')) shell.openExternal(url);
+              return { action: 'deny' };
+            });
+          }
+
+          app.whenReady().then(() => {
+            protocol.handle('app', async (request) => {
+              const url = new URL(request.url);
+              let relPath = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+              if (!relPath || relPath.endsWith('/')) relPath += 'index.html';
+              const resolved = path.resolve(APP_DIR, relPath);
+              if (!resolved.startsWith(APP_DIR)) {
+                return new Response('Forbidden', { status: 403 });
+              }
+              try {
+                const data = await fs.promises.readFile(resolved);
+                const ext = path.extname(resolved).toLowerCase();
+                return new Response(data, {
+                  status: 200,
+                  headers: { 'Content-Type': MIME[ext] || 'application/octet-stream' }
+                });
+              } catch {
+                return new Response('Not Found', { status: 404 });
+              }
+            });
+
+            createWindow();
+
+            app.on('activate', () => {
+              if (BrowserWindow.getAllWindows().length === 0) createWindow();
+            });
+          });
+
+          app.on('window-all-closed', () => {
+            if (process.platform !== 'darwin') app.quit();
+          });
+          '@
+          Set-Content -Path main.cjs -Value $mainJs -Encoding utf8
+
+          npm install --no-audit --no-fund --save-dev electron electron-builder
+          npx electron-builder --win dir
+
+      - name: Empaquetar carpeta Steam (.exe + recursos)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build-win/out | Out-Null
+          $zipPath = "build-win/out/Bescuit-Dau-i-Forn-Steam-v$($env:VERSION_NAME)-win64.zip"
+          Compress-Archive -Path "build-win/dist/win-unpacked/*" -DestinationPath $zipPath -CompressionLevel Optimal
+          Get-ChildItem build-win/out
+
+      - name: Borrar artifacts antiguos de Steam/Windows
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifacts = await github.paginate(github.rest.actions.listArtifactsForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100
+            });
+            const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+            let deleted = 0;
+            for (const artifact of artifacts) {
+              const isOldSteam = artifact.name === 'bescuit-dau-i-forn-steam-win64';
+              const isStalePages = artifact.name === 'github-pages' && new Date(artifact.created_at).getTime() < twoHoursAgo;
+              if (isOldSteam || isStalePages) {
+                try {
+                  await github.rest.actions.deleteArtifact({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    artifact_id: artifact.id
+                  });
+                  deleted++;
+                } catch (err) {
+                  core.info(`No se pudo borrar artifact ${artifact.id}: ${err.message}`);
+                }
+              }
+            }
+            core.info(`Artifacts antiguos eliminados: ${deleted}`);
+
+      - name: Subir build de Windows para Steam
+        uses: actions/upload-artifact@v4
+        with:
+          name: bescuit-dau-i-forn-steam-win64
+          path: build-win/out/*.zip
+          retention-days: 5
+
+      - name: Resumen de compilación Steam
+        shell: pwsh
+        run: |
+          @"
+          ## Bescuit: Dau i Forn · Build Windows (Steam)
+          - **Ejecutable principal:** ``Bescuit Dau i Forn.exe``
+          - **Versión:** ``$($env:VERSION_NAME)``
+          - **Formato:** Carpeta portátil ``win-unpacked`` (lista para subir al Depot de Steamworks o ejecutar directamente al descomprimir)
+          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append

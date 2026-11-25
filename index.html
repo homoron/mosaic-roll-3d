@@ -5,22 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#070c22">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="Mosaic Roll 3D · Alhambra de noche. Combina dados de cerámica bajo la luna, compra en el zoco y forja quimeras entre mosaicos.">
-  <title>Mosaic Roll 3D</title>
+  <meta name="description" content="Bescuit: Dau i Forn · Alhambra de noche. Combina dados de cerámica bajo la luna, compra en el zoco y forja quimeras entre mosaicos.">
+  <title>Bescuit: Dau i Forn</title>
   <link rel="icon" type="image/jpeg" href="azulejo.jpg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Reem+Kufi:wght@400..700&display=swap">
-  <link rel="stylesheet" href="estilo.css?v=esmaltes-1">
+  <link rel="stylesheet" href="estilo.css?v=esmaltes-30">
   <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script>
-  <script type="module" src="juego.js?v=esmaltes-1"></script>
+  <script type="module" src="juego.js?v=esmaltes-30"></script>
 </head>
 <body data-screen="title">
   <main class="patio" id="start">
     <div class="sky" aria-hidden="true"><span class="stars"></span><span class="moon"></span><span class="lattice"></span></div>
     <header class="crest">
       <p class="crest-kicker"><span class="rule" aria-hidden="true"></span>Alhambra de noche<span class="rule" aria-hidden="true"></span></p>
-      <h1 class="wordmark"><span class="wordmark-main">Mosaic Roll</span><span class="wordmark-star"><span>3D</span></span></h1>
+      <h1 class="wordmark"><span class="wordmark-main">Bescuit</span><span class="wordmark-star"><span>3D</span></span><span class="wordmark-sub">Dau i Forn</span></h1>
       <p class="crest-tagline">Combina dados de cerámica bajo la luna y mejora tu bolsa en el zoco.</p>
     </header>
 
@@ -50,9 +50,13 @@
       <button class="music-toggle" type="button" id="music" aria-pressed="true"><i data-icon="music"></i>Música: <span class="music-state">sí</span></button>
       <select class="language-picker" id="language" aria-label="Idioma">
         <option value="es" lang="es">Español</option>
+        <option value="ca" lang="ca">Valencià / Català</option>
         <option value="en" lang="en">English</option>
+        <option value="fr" lang="fr">Français</option>
       </select>
-      <a class="download" href="Mosaic-Roll-3D.zip?v=taller-2" download><i data-icon="download"></i>Edición para Windows</a>
+      <button class="options-toggle" type="button" id="title-options" aria-label="Ajustes" title="Ajustes"><i data-icon="settings"></i>Ajustes</button>
+      <a class="music-credit" href="https://umbriamusic.bandcamp.com/" target="_blank" rel="noopener noreferrer"><i data-icon="music"></i><span>Música: Umbría</span></a>
+      <span class="patio-version" id="app-version">v0.1.3</span>
     </footer>
   </main>
 
@@ -82,6 +86,7 @@
             <div class="glyph" id="chisel-glyph" title="Cargas de cincel"><i data-icon="chisel" class="glyph-ico"></i><span class="sr-only">Cincel</span><strong id="chisel-count"></strong></div>
           </div>
           <div class="medallion" id="medallion">
+            <div class="medallion-preview" id="progress-preview" aria-hidden="true"></div>
             <div class="medallion-ring" id="progress" role="progressbar" aria-label="Objetivo del mosaico" aria-valuemin="0"></div>
             <div class="medallion-star">
               <span class="medallion-kicker" aria-hidden="true">Puntos</span>
@@ -119,6 +124,7 @@
         <button class="orb orb-small" type="button" id="reset-camera" aria-label="Centrar cámara" title="Centrar cámara (R)"><i data-icon="target"></i></button>
         <button class="orb orb-small" type="button" id="collection-button" aria-label="Bolsa y azulejos" title="Bolsa y azulejos"><i data-icon="bag"></i></button>
         <button class="orb orb-small" type="button" id="sound" aria-label="Sonido" aria-pressed="true" title="Sonido"><i data-icon="sound"></i></button>
+        <button class="orb orb-small" type="button" id="options-button" aria-label="Ajustes" title="Ajustes"><i data-icon="settings"></i></button>
       </nav>
 
       <footer class="dock">
@@ -132,6 +138,20 @@
             <p class="tally-placed" id="placed"></p>
           </section>
           <div class="sequence" id="sequence" hidden>
+            <div class="score-flames" aria-hidden="true">
+              <svg class="flame outer f1" viewBox="0 0 32 48" preserveAspectRatio="none"><path d="M16 1C20 13 30 21 30 34C30 43 24 47 16 47C8 47 2 43 2 34C2 23 10 17 12 8C14 14 15 11 16 1Z"/></svg>
+              <svg class="flame outer f2" viewBox="0 0 32 48" preserveAspectRatio="none"><path d="M15 2C21 15 29 22 29 34C29 43 23 47 16 47C9 47 3 43 3 34C3 22 9 14 15 2Z"/></svg>
+              <svg class="flame mid f3" viewBox="0 0 32 48" preserveAspectRatio="none"><path d="M16 1C20 13 30 21 30 34C30 43 24 47 16 47C8 47 2 43 2 34C2 23 10 17 12 8C14 14 15 11 16 1Z"/></svg>
+              <svg class="flame inner f4" viewBox="0 0 32 48" preserveAspectRatio="none"><path d="M16 3C21 15 28 22 28 35C28 43 23 47 16 47C9 47 4 43 4 35C4 23 11 16 16 3Z"/></svg>
+              <svg class="flame mid f5" viewBox="0 0 32 48" preserveAspectRatio="none"><path d="M15 2C21 15 29 22 29 34C29 43 23 47 16 47C9 47 3 43 3 34C3 22 9 14 15 2Z"/></svg>
+              <svg class="flame outer f6" viewBox="0 0 32 48" preserveAspectRatio="none"><path d="M16 1C20 13 30 21 30 34C30 43 24 47 16 47C8 47 2 43 2 34C2 23 10 17 12 8C14 14 15 11 16 1Z"/></svg>
+              <svg class="flame outer f7" viewBox="0 0 32 48" preserveAspectRatio="none"><path d="M15 2C21 15 29 22 29 34C29 43 23 47 16 47C9 47 3 43 3 34C3 22 9 14 15 2Z"/></svg>
+              <span class="spark s1"></span>
+              <span class="spark s2"></span>
+              <span class="spark s3"></span>
+              <span class="spark s4"></span>
+              <span class="spark s5"></span>
+            </div>
             <span class="sequence-phase" id="sequence-phase"></span>
             <div class="sequence-value" id="sequence-value"></div>
             <small class="sequence-detail" id="sequence-detail"></small>
@@ -150,7 +170,10 @@
         </header>
         <div class="codex-body">
           <section class="codex-section" aria-labelledby="patterns-title">
-            <h3 id="patterns-title">Combinaciones</h3>
+            <div class="codex-section-head">
+              <h3 id="patterns-title">Combinaciones</h3>
+              <button class="codex-plates-btn" type="button" id="codex-plates"><i data-icon="plate"></i>Ver platos</button>
+            </div>
             <ul class="patterns" id="patterns"></ul>
           </section>
           <section class="codex-section" aria-labelledby="equipped-label">
@@ -165,6 +188,6 @@
   </main>
 
   <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
-  <noscript>Activa JavaScript en el navegador para jugar a Mosaic Roll 3D.</noscript>
+  <noscript>Activa JavaScript en el navegador para jugar a Bescuit: Dau i Forn.</noscript>
 </body>
 </html>
